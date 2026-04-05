@@ -1,7 +1,15 @@
 [package]
 name = "arbhx-vfs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "An advanced VFS layer for Arbhx."
+homepage = "https://ericg2.github.io/"
+repository = "https://github.com/ericg2/arbhx"
+readme = "README.md"
+categories = ["filesystem"]
+keywords = ["vfs"]
+
 
 [dependencies]
 arbhx = { version = "0.3" }
@@ -28,3 +36,4 @@ rustls-pemfile = "2.2.0"
 rand = "0.9.2"
 
 simplelog = "0.12.2"
+console-subscriber = "0.5.0"

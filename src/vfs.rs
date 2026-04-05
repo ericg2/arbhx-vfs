@@ -9,20 +9,23 @@ use arbhx::{DataMode, DataRead, Operator};
 use async_trait::async_trait;
 use bitflags::bitflags;
 use bytes::Bytes;
-use futures_lite::{Stream, StreamExt};
+use futures_lite::{FutureExt, Stream, StreamExt};
 use log::{trace, warn};
 use std::collections::{HashMap, HashSet};
-use std::io;
+use std::{io, thread};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::slice::SliceIndex;
 use std::str::FromStr;
 use std::sync::Arc;
+use chrono::Duration;
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncSeekExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncRead, AsyncSeek};
+use tokio::sync::{Mutex, Semaphore};
+use tokio::time::sleep;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -80,6 +83,7 @@ pub struct VirtualFS {
     handles: HashMap<Uuid, VirtualHandle>,
     offsets: HashMap<Uuid, u64>, // 4-4-26: Optimization to help with SEEK.
     cache: DataCache,
+    buffer: Arc<Semaphore>,
 }
 
 impl VirtualFS {
@@ -89,10 +93,11 @@ impl VirtualFS {
             handles: HashMap::new(),
             cache: DataCache::new(),
             offsets: HashMap::new(),
+            buffer: Arc::new(Semaphore::new(64)),
         }
     }
 
-    async fn resolve_path(&self, path: impl AsRef<Path>) -> io::Result<VirtualPath> {
+    async fn resolve_path(&mut self, path: impl AsRef<Path>) -> io::Result<VirtualPath> {
         let f_path = path
             .as_ref()
             .to_str()
@@ -169,7 +174,7 @@ impl VirtualFS {
             // Read-only
             (true, false, _, _) => {
                 let reader = file.open_read().await?;
-                Ok(HandleMode::Read(reader))
+                Ok(HandleMode::Read(Mutex::new(reader)))
             }
 
             // Write only, append mode
@@ -180,31 +185,31 @@ impl VirtualFS {
                 } else {
                     file.open_append(truncate).await?
                 };
-                Ok(HandleMode::Append(handle))
+                Ok(HandleMode::Append(Mutex::new(handle)))
             }
 
             // Read + write, append mode. TODO: make random-supported BE not go through this too!
             (true, true, true, truncate) => {
                 let handle = SeqLockHandle::new(file.path().to_path_buf(), file, truncate);
-                Ok(HandleMode::AppendRW(handle))
+                Ok(HandleMode::AppendRW(Mutex::new(handle)))
             }
 
             // Full read/write (no append)
             (true, true, false, _) | (false, true, false, _) => {
                 let handle = file.open_full().await?;
-                Ok(HandleMode::FullRW(handle))
+                Ok(HandleMode::FullRW(Mutex::new(handle)))
             }
 
             // Should not happen: read & no write & not append
             (false, false, _, _) => {
                 let reader = file.open_read().await?;
-                Ok(HandleMode::Read(reader))
+                Ok(HandleMode::Read(Mutex::new(reader)))
             }
         }
     }
 
     async fn raw_transfer(
-        &self,
+        &mut self,
         src: impl AsRef<Path>,
         dest: impl AsRef<Path>,
         do_move: bool, // optional: move instead of copy
@@ -390,7 +395,7 @@ impl UserVfs for VirtualFS {
         Ok(FileHandle { id, path, flags })
     }
 
-    async fn open_seq(&mut self, path: &Path) -> io::Result<SeqLockHandle> {
+    async fn open_seq(&mut self, path: &Path) -> io::Result<Mutex<SeqLockHandle>> {
         let ret = self
             .open_file(
                 path,
@@ -435,10 +440,9 @@ impl UserVfs for VirtualFS {
             length: usize,
             do_seek: bool,
         ) -> io::Result<(Bytes, usize)> {
-            //if do_seek {
+            if do_seek {
                 file.seek(SeekFrom::Start(offset)).await?;
-            //}
-
+            }
             let mut buf = vec![0u8; length];
             let n = file.read(&mut buf).await?;
             buf.truncate(n);
@@ -450,18 +454,42 @@ impl UserVfs for VirtualFS {
             _ => true,
         };
 
-        let result = match &mut *vfs.mode.lock().await {
+        warn!("ENTER READ");
+        let result = match vfs.mode {
             HandleMode::Append(_) => Err(ErrorKind::Unsupported.into()),
             HandleMode::Directory(_) => Err(ErrorKind::IsADirectory.into()),
-            HandleMode::Read( x) => read_exact_from(x, offset, length, do_seek)
-                .await
-                .map(|(b, n)| (b, n)),
-            HandleMode::FullRW(x) => read_exact_from(x, offset, length, do_seek)
-                .await
-                .map(|(b, n)| (b, n)),
-            HandleMode::AppendRW(x) => {
-                let mut lck = x.lock_read().await?;
-                read_exact_from(&mut lck, offset, length, do_seek)
+            HandleMode::Read(ref mut x) => {
+                let _permit = self
+                    .buffer
+                    .acquire()
+                    .await
+                    .map_err(|_| ErrorKind::Other)?;
+                let lck = &mut *x.lock().await;
+                warn!("SEMAPHORE ACQUIRED");
+                read_exact_from(lck, offset, length, do_seek)
+                    .await
+                    .map(|(b, n)| (b, n))
+            }
+            HandleMode::FullRW(ref mut x) => {
+                let _permit = self
+                    .buffer
+                    .acquire()
+                    .await
+                    .map_err(|_| ErrorKind::Other)?;
+                let lck = &mut *x.lock().await;
+                read_exact_from(lck, offset, length, do_seek)
+                    .await
+                    .map(|(b, n)| (b, n))
+            }
+            HandleMode::AppendRW(ref mut x) => {
+                let _permit = self
+                    .buffer
+                    .acquire()
+                    .await
+                    .map_err(|_| ErrorKind::Other)?;
+                let lck = &mut *x.lock().await;
+                let mut lck2 = lck.lock_read().await?;
+                read_exact_from(&mut lck2, offset, length, do_seek)
                     .await
                     .map(|(b, n)| (b, n))
             }
@@ -489,20 +517,38 @@ impl UserVfs for VirtualFS {
 
             Ok(())
         };
-        match  &mut *vfs.mode.lock().await {
-            HandleMode::FullRW(x) => {
+        match vfs.mode {
+            HandleMode::FullRW(ref mut x) => {
+                let _permit = self
+                    .buffer
+                    .acquire()
+                    .await
+                    .map_err(|_| ErrorKind::Other)?;
                 check_space().await?;
-                x.seek(SeekFrom::Start(offset)).await?;
-                x.write(&*data).await
-            }
-            HandleMode::AppendRW(x) => {
-                check_space().await?; // TODO: add offset checking here!
-                let lck = x.lock_write().await?;
+                let lck = &mut *x.lock().await;
+                lck.seek(SeekFrom::Start(offset)).await?;
                 lck.write(&*data).await
             }
-            HandleMode::Append(x) => {
+            HandleMode::AppendRW(ref mut x) => {
+                let _permit = self
+                    .buffer
+                    .acquire()
+                    .await
+                    .map_err(|_| ErrorKind::Other)?;
+                check_space().await?; // TODO: add offset checking here!
+                let lck = &mut *x.lock().await;
+                let lck2 = lck.lock_write().await?;
+                lck2.write(&*data).await
+            }
+            HandleMode::Append(ref mut x) => {
+                let _permit = self
+                    .buffer
+                    .acquire()
+                    .await
+                    .map_err(|_| ErrorKind::Other)?;
                 check_space().await?;
-                x.write(&*data).await
+                let lck = &mut *x.lock().await;
+                lck.write(&*data).await
             }
             HandleMode::Directory(_) => Err(ErrorKind::IsADirectory.into()),
             HandleMode::Read(_) => Err(ErrorKind::ReadOnlyFilesystem.into()),

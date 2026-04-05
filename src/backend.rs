@@ -9,6 +9,7 @@ use bytesize::ByteSize;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 use crate::handle::{DirFlags, DirHandle, FileHandle, VfsFlags, VfsHandle};
 use crate::sequential::SeqLockHandle;
@@ -20,7 +21,7 @@ pub trait UserVfs: Send + Sync + Debug + Unpin + 'static {
     fn get_handles(&self) -> Vec<VfsHandle>;
     async fn open_dir(&mut self, path: &Path, flags: DirFlags) -> io::Result<DirHandle>;
     async fn open_file(&mut self, path: &Path, flags: VfsFlags) -> io::Result<FileHandle>;
-    async fn open_seq(&mut self, path: &Path) -> io::Result<SeqLockHandle>;
+    async fn open_seq(&mut self, path: &Path) -> io::Result<Mutex<SeqLockHandle>>;
     async fn close(&mut self, handle: Uuid) -> io::Result<()>;
     async fn read(&mut self, handle: Uuid, offset: u64, length: u64) -> io::Result<Bytes>;
     async fn write(&mut self, handle: Uuid, offset: u64, data: Bytes) -> io::Result<usize>;

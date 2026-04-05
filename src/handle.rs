@@ -85,17 +85,17 @@ impl From<&VirtualHandle> for VfsHandle {
 
 #[derive(Debug)]
 pub enum HandleMode {
-    Read(Box<dyn DataRead>),
-    FullRW(Box<dyn DataFull>),
-    AppendRW(SeqLockHandle),
-    Append(Box<dyn DataAppend>),
+    Read(Mutex<Box<dyn DataRead>>),
+    FullRW(Mutex<Box<dyn DataFull>>),
+    AppendRW(Mutex<SeqLockHandle>),
+    Append(Mutex<Box<dyn DataAppend>>),
     Directory(DirFlags),
 }
 
 #[derive(Debug)]
 pub struct VirtualHandle {
     pub id: Uuid,
-    pub mode: Mutex<HandleMode>,
+    pub mode: HandleMode,
     pub path: PathBuf,
     pub meta: Option<Metadata>,
     pub src: Option<Operator>,
