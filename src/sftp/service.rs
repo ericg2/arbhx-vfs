@@ -189,9 +189,13 @@ impl russh_sftp::server::Handler for SFtpSession {
         len: u32,
     ) -> Result<Data, Self::Error> {
         let h_id = str_to_id(&handle)?;
+        let mut flen = len;
+        if len == 32 * 1024 {
+            flen -= 64;
+        }
         let ret = self
             .fs
-            .read(h_id, offset, len as u64)
+            .read(h_id, offset, flen as u64)
             .await
             .map_err(map_io_error)?;
         Ok(Data {
