@@ -1,0 +1,30 @@
+[package]
+name = "arbhx-vfs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arbhx = { version = "0.3" }
+serde = { version = "1.0.228", features = ["derive"] }
+bitflags = "2.11.0"
+bytes = "1.11.1"
+log = "0.4.29"
+thiserror = "2.0.18"
+uuid = { version = "1.23.0", features = ["v4"] }
+moka = { version = "0.12.15", features = ["future"] }
+async-trait = "0.1.89"
+tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4.44", features = ["serde"] }
+bytesize = "2.3.1"
+futures-lite = "2.6.1"
+sha2 = "0.11.0"
+hex = "0.4.3"
+
+rcgen = "0.14.7"
+russh = "0.58"
+russh-sftp = "2.1.1"
+rustls = { version = "0.23", features = ["aws-lc-rs"] }
+rustls-pemfile = "2.2.0"
+rand = "0.9.2"
+
+simplelog = "0.12.2"
