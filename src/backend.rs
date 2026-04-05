@@ -57,7 +57,6 @@ pub trait VfsAuth: Send + Sync {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-#[non_exhaustive]
 pub struct VfsMetadata {
     pub(crate) path: PathBuf,
     pub(crate) is_dir: bool,

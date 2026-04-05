@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use crate::sha256_hash;
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-#[non_exhaustive]
 pub struct VfsUser {
     pub user_name: String,
     pub sha256_hash: String,
@@ -31,7 +30,6 @@ impl VfsUser {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-#[non_exhaustive]
 pub struct VfsPoint {
     pub name: String,
     pub root: String,
