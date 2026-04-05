@@ -88,9 +88,9 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "arbhx"
-version = "0.3.5"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3832c68338ee8f65e5d85e7ab820a4c1ea5004a2b86d3ec922b0297d7d1a4235"
+checksum = "fbb1a806484e3e19930c82ec2b4f6b7fba9479815f59de4ab3da8c06f1552722"
 dependencies = [
  "async-trait",
  "async-walkdir",

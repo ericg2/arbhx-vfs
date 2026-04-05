@@ -14,6 +14,12 @@ pub use service::VfsManager;
 use sha2::{Digest, Sha256};
 pub use vfs::VirtualFS;
 
+// Re-export to allow systems to use it.
+pub use arbhx::DataMode;
+pub use arbhx::local::LocalConfig;
+pub use arbhx::remote::RemoteConfig;
+pub use arbhx::remote::services::*;
+
 pub(crate) fn strip_all<'a>(st: &'a str, p: &'a str) -> &'a str {
     let x = st.strip_prefix(p).unwrap_or(st);
     x.strip_suffix(p).unwrap_or(x)

@@ -1,6 +1,6 @@
 [package]
 name = "arbhx-vfs"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "An advanced VFS layer for Arbhx."
@@ -12,7 +12,7 @@ keywords = ["vfs"]
 
 
 [dependencies]
-arbhx = { version = "0.3" }
+arbhx = { version = "=0.3.6" }
 serde = { version = "1.0.228", features = ["derive"] }
 bitflags = "2.11.0"
 bytes = "1.11.1"
