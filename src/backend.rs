@@ -1,7 +1,6 @@
-use std::ffi::OsStr;
-use std::fmt::Debug;
-use std::io;
-use std::path::{Path, PathBuf};
+use crate::handle::{DirFlags, DirHandle, FileHandle, VfsFlags, VfsHandle};
+use crate::sequential::SeqLockHandle;
+use crate::{VfsPoint, VfsUser};
 use arbhx::DataUsage;
 use arbhx::fs::Metadata;
 use async_trait::async_trait;
@@ -9,12 +8,13 @@ use bytes::Bytes;
 use bytesize::ByteSize;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::ffi::OsStr;
+use std::fmt::Debug;
+use std::io;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use uuid::Uuid;
-use crate::handle::{DirFlags, DirHandle, FileHandle, VfsFlags, VfsHandle};
-use crate::sequential::SeqLockHandle;
-use crate::{VfsPoint, VfsUser};
 
 #[async_trait]
 pub trait UserVfs: Send + Sync + Debug + Unpin + 'static {
@@ -72,6 +72,22 @@ pub struct VfsInfo {
     pub(crate) path: PathBuf,
     pub(crate) usage: Option<DataUsage>,
     pub(crate) vfs: Option<VfsPoint>,
+}
+
+impl VfsInfo {
+    pub(crate) fn new(path: PathBuf, usage: Option<DataUsage>, vfs: Option<VfsPoint>) -> Self {
+        Self { path, usage, vfs }
+    }
+    
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+    pub fn usage(&self) -> Option<DataUsage> {
+        self.usage.clone()
+    }
+    pub fn vfs(&self) -> Option<VfsPoint> {
+        self.vfs.clone()
+    }
 }
 
 impl VfsMetadata {
