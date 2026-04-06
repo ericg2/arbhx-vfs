@@ -298,7 +298,7 @@ impl russh_sftp::server::Handler for SFtpSession {
 
     async fn remove(&mut self, id: u32, filename: String) -> Result<Status, Self::Error> {
         let path = str_to_path(&filename)?;
-        self.fs.remove_file(&path).await.map_err(map_io_error)?;
+        self.fs.remove(&path).await.map_err(map_io_error)?;
         Ok(Status {
             id,
             status_code: StatusCode::Ok,
@@ -325,7 +325,7 @@ impl russh_sftp::server::Handler for SFtpSession {
 
     async fn rmdir(&mut self, id: u32, path: String) -> Result<Status, Self::Error> {
         let path = str_to_path(&path)?;
-        self.fs.remove_dir(&path).await.map_err(map_io_error)?;
+        self.fs.remove(&path).await.map_err(map_io_error)?;
         Ok(Status {
             id,
             status_code: StatusCode::Ok,

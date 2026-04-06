@@ -555,8 +555,8 @@ impl UserVfs for VirtualFS {
         }
     }
 
-    async fn remove_file(&mut self, path: &Path) -> io::Result<()> {
-        trace!("remove_file - {path:?}");
+    async fn remove(&mut self, path: &Path) -> io::Result<()> {
+        trace!("remove - {path:?}");
         let v_path = self
             .resolve_path(path)
             .await?
@@ -564,21 +564,12 @@ impl UserVfs for VirtualFS {
         if !v_path.vfs.can_write {
             return Err(ErrorKind::ReadOnlyFilesystem.into());
         }
-        v_path.src.remove_file(&v_path.rel_path).await?;
-        self.handles.retain(|_, x| !x.path.starts_with(path));
-        Ok(())
-    }
-
-    async fn remove_dir(&mut self, path: &Path) -> io::Result<()> {
-        trace!("remove_dir - {path:?}");
-        let v_path = self
-            .resolve_path(path)
-            .await?
-            .exact(ErrorKind::IsADirectory)?;
-        if !v_path.vfs.can_write {
-            return Err(ErrorKind::ReadOnlyFilesystem.into());
+        let meta = v_path.get_meta().await?;
+        if meta.is_dir() {
+            v_path.src.remove_dir(&v_path.rel_path).await?;
+        } else {
+            v_path.src.remove_file(&v_path.rel_path).await?;
         }
-        v_path.src.remove_dir(&v_path.rel_path).await?;
         self.handles.retain(|_, x| !x.path.starts_with(path));
         Ok(())
     }

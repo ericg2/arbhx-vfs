@@ -25,8 +25,9 @@ pub trait UserVfs: Send + Sync + Debug + Unpin + 'static {
     async fn close(&mut self, handle: Uuid) -> io::Result<()>;
     async fn read(&mut self, handle: Uuid, offset: u64, length: u64) -> io::Result<Bytes>;
     async fn write(&mut self, handle: Uuid, offset: u64, data: Bytes) -> io::Result<usize>;
-    async fn remove_file(&mut self, path: &Path) -> io::Result<()>;
-    async fn remove_dir(&mut self, path: &Path) -> io::Result<()>;
+    //async fn remove_file(&mut self, path: &Path) -> io::Result<()>;
+    //async fn remove_dir(&mut self, path: &Path) -> io::Result<()>;
+    async fn remove(&mut self, path: &Path) -> io::Result<()>;
     async fn create_dir(&mut self, path: &Path) -> io::Result<()>;
     async fn stat_f(&mut self, path: &Path) -> io::Result<VfsMetadata>;
     async fn stat_h(&mut self, handle: Uuid) -> io::Result<VfsMetadata>;
