@@ -11,6 +11,7 @@ pub mod sftp;
 pub use backend::{AuthResult, UserAuthError, UserVfs, VfsAuth, VfsMetadata};
 pub use config::{VfsPoint, VfsUser};
 pub use service::VfsManager;
+pub use handle::{VfsFlags, DirFlags};
 use sha2::{Digest, Sha256};
 pub use vfs::VirtualFS;
 
