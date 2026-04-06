@@ -2,6 +2,7 @@ use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::io;
 use std::path::{Path, PathBuf};
+use arbhx::DataUsage;
 use arbhx::fs::Metadata;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -19,6 +20,7 @@ use crate::{VfsPoint, VfsUser};
 pub trait UserVfs: Send + Sync + Debug + Unpin + 'static {
     fn get_user(&self) -> VfsUser;
     fn get_handles(&self) -> Vec<VfsHandle>;
+    async fn get_info(&mut self, path: &Path) -> io::Result<VfsInfo>;
     async fn open_dir(&mut self, path: &Path, flags: DirFlags) -> io::Result<DirHandle>;
     async fn open_file(&mut self, path: &Path, flags: VfsFlags) -> io::Result<FileHandle>;
     async fn open_seq(&mut self, path: &Path) -> io::Result<Mutex<SeqLockHandle>>;
@@ -63,6 +65,13 @@ pub struct VfsMetadata {
     pub(crate) is_dir: bool,
     pub(crate) vfs: Option<VfsPoint>,
     pub(crate) meta: Option<Metadata>,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+pub struct VfsInfo {
+    pub(crate) path: PathBuf,
+    pub(crate) usage: Option<DataUsage>,
+    pub(crate) vfs: Option<VfsPoint>,
 }
 
 impl VfsMetadata {

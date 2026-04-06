@@ -8,7 +8,7 @@ mod vfs;
 
 pub mod sftp;
 
-pub use backend::{AuthResult, UserAuthError, UserVfs, VfsAuth, VfsMetadata};
+pub use backend::{AuthResult, UserAuthError, UserVfs, VfsAuth, VfsMetadata, VfsInfo};
 pub use config::{VfsPoint, VfsUser};
 pub use service::VfsManager;
 pub use handle::{VfsFlags, DirFlags};

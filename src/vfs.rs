@@ -1,3 +1,4 @@
+use crate::backend::VfsInfo;
 use crate::cache::DataCache;
 use crate::handle::{
     DirFlags, DirHandle, FileHandle, HandleMode, VfsFlags, VfsHandle, VirtualHandle,
@@ -9,16 +10,16 @@ use arbhx::{DataMode, DataRead, Operator};
 use async_trait::async_trait;
 use bitflags::bitflags;
 use bytes::Bytes;
+use chrono::Duration;
 use futures_lite::{FutureExt, Stream, StreamExt};
 use log::{trace, warn};
 use std::collections::{HashMap, HashSet};
-use std::{io, thread};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::slice::SliceIndex;
 use std::str::FromStr;
 use std::sync::Arc;
-use chrono::Duration;
+use std::{io, thread};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncSeekExt;
@@ -64,7 +65,7 @@ struct ListMatch {
 enum VirtualPath {
     ExactMatch(OneMatch),
     Multiple(ListMatch),
-    Root,
+    Root(PathBuf),
 }
 
 impl VirtualPath {
@@ -74,6 +75,25 @@ impl VirtualPath {
         } else {
             Err(io::Error::from(err))
         }
+    }
+    pub async fn info(self) -> io::Result<VfsInfo> {
+        Ok(match self {
+            VirtualPath::ExactMatch(x) => VfsInfo {
+                path: x.rel_path,
+                usage: x.src.usage().await?,
+                vfs: Some(x.vfs),
+            },
+            VirtualPath::Multiple(x) => VfsInfo {
+                path: x.rel_path,
+                usage: None,
+                vfs: None,
+            },
+            VirtualPath::Root(path) => VfsInfo {
+                path,
+                usage: None,
+                vfs: None,
+            },
+        })
     }
 }
 
@@ -111,7 +131,7 @@ impl VirtualFS {
         // Base component
         let start_path = spl.get(0).map(|s| s.as_str()).unwrap_or("");
         if f_path.is_empty() || f_path == "/" {
-            return Ok(VirtualPath::Root);
+            return Ok(VirtualPath::Root(PathBuf::from("/")));
         }
         match spl.get(1) {
             Some(point_name) => {
@@ -273,6 +293,10 @@ impl UserVfs for VirtualFS {
         self.handles.iter().map(|x| x.1.into()).collect::<Vec<_>>()
     }
 
+    async fn get_info(&mut self, path: &Path) -> io::Result<VfsInfo> {
+        self.resolve_path(path).await?.info().await
+    }
+
     async fn open_dir(&mut self, path: &Path, flags: DirFlags) -> io::Result<DirHandle> {
         let v_path = self.resolve_path(path).await?;
         let mut do_handle = |rel_path: PathBuf| {
@@ -336,7 +360,7 @@ impl UserVfs for VirtualFS {
                 }
             }
 
-            VirtualPath::Root => {
+            VirtualPath::Root(_) => {
                 if flags.bits() != DirFlags::READ.bits() {
                     return Err(ErrorKind::ReadOnlyFilesystem.into());
                 }
@@ -464,11 +488,7 @@ impl UserVfs for VirtualFS {
             HandleMode::Append(_) => Err(ErrorKind::Unsupported.into()),
             HandleMode::Directory(_) => Err(ErrorKind::IsADirectory.into()),
             HandleMode::Read(ref mut x) => {
-                let _permit = self
-                    .buffer
-                    .acquire()
-                    .await
-                    .map_err(|_| ErrorKind::Other)?;
+                let _permit = self.buffer.acquire().await.map_err(|_| ErrorKind::Other)?;
                 let lck = &mut *x.lock().await;
                 warn!("SEMAPHORE ACQUIRED");
                 read_exact_from(lck, offset, length, do_seek)
@@ -476,22 +496,14 @@ impl UserVfs for VirtualFS {
                     .map(|(b, n)| (b, n))
             }
             HandleMode::FullRW(ref mut x) => {
-                let _permit = self
-                    .buffer
-                    .acquire()
-                    .await
-                    .map_err(|_| ErrorKind::Other)?;
+                let _permit = self.buffer.acquire().await.map_err(|_| ErrorKind::Other)?;
                 let lck = &mut *x.lock().await;
                 read_exact_from(lck, offset, length, do_seek)
                     .await
                     .map(|(b, n)| (b, n))
             }
             HandleMode::AppendRW(ref mut x) => {
-                let _permit = self
-                    .buffer
-                    .acquire()
-                    .await
-                    .map_err(|_| ErrorKind::Other)?;
+                let _permit = self.buffer.acquire().await.map_err(|_| ErrorKind::Other)?;
                 let lck = &mut *x.lock().await;
                 let mut lck2 = lck.lock_read().await?;
                 read_exact_from(&mut lck2, offset, length, do_seek)
@@ -524,33 +536,21 @@ impl UserVfs for VirtualFS {
         };
         match vfs.mode {
             HandleMode::FullRW(ref mut x) => {
-                let _permit = self
-                    .buffer
-                    .acquire()
-                    .await
-                    .map_err(|_| ErrorKind::Other)?;
+                let _permit = self.buffer.acquire().await.map_err(|_| ErrorKind::Other)?;
                 check_space().await?;
                 let lck = &mut *x.lock().await;
                 lck.seek(SeekFrom::Start(offset)).await?;
                 lck.write(&*data).await
             }
             HandleMode::AppendRW(ref mut x) => {
-                let _permit = self
-                    .buffer
-                    .acquire()
-                    .await
-                    .map_err(|_| ErrorKind::Other)?;
+                let _permit = self.buffer.acquire().await.map_err(|_| ErrorKind::Other)?;
                 check_space().await?; // TODO: add offset checking here!
                 let lck = &mut *x.lock().await;
                 let lck2 = lck.lock_write().await?;
                 lck2.write(&*data).await
             }
             HandleMode::Append(ref mut x) => {
-                let _permit = self
-                    .buffer
-                    .acquire()
-                    .await
-                    .map_err(|_| ErrorKind::Other)?;
+                let _permit = self.buffer.acquire().await.map_err(|_| ErrorKind::Other)?;
                 check_space().await?;
                 let lck = &mut *x.lock().await;
                 lck.write(&*data).await
@@ -605,9 +605,9 @@ impl UserVfs for VirtualFS {
                 };
                 Ok(meta)
             }
-            VirtualPath::Root => {
+            VirtualPath::Root(path) => {
                 let meta = VfsMetadata {
-                    path: PathBuf::from_str("/").expect("Failed to parse '/'"),
+                    path,
                     is_dir: true,
                     vfs: None,
                     meta: None,
@@ -635,7 +635,7 @@ impl UserVfs for VirtualFS {
                 let it = li.stream().await?;
                 let ret = it
                     .filter_map(|x| x.ok())
-                    .map(|mut z| {
+                    .map(|z| {
                         let meta = z.metadata();
                         VfsMetadata {
                             path: z.path().to_path_buf(),
@@ -662,7 +662,7 @@ impl UserVfs for VirtualFS {
                     })
                 })
                 .collect::<io::Result<Vec<_>>>()?),
-            VirtualPath::Root => {
+            VirtualPath::Root(_) => {
                 let roots = self
                     .user
                     .points
