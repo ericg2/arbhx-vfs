@@ -368,7 +368,7 @@ impl russh_sftp::server::Handler for SFtpSession {
         let old_path = str_to_path(&old_path)?;
         let new_path = str_to_path(&new_path)?;
         self.fs
-            .rename(&old_path, &new_path)
+            .rename(&old_path, &new_path, true)
             .await
             .map_err(map_io_error)?;
         Ok(Status {

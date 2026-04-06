@@ -213,6 +213,7 @@ impl VirtualFS {
         src: impl AsRef<Path>,
         dest: impl AsRef<Path>,
         do_move: bool, // optional: move instead of copy
+        do_overwrite: bool,
     ) -> io::Result<()> {
         let src = src.as_ref();
         let dest = dest.as_ref();
@@ -232,6 +233,10 @@ impl VirtualFS {
         // 4-3-26: All moves have to be in the same backend!
         if dv_path.src.info().can_append {
             if sv_path.src.id() == dv_path.src.id() {
+                // 4-5-26: Check if we need to overwrite or not...
+                if !do_overwrite && dv_path.src.stat(&dest).await?.is_some() {
+                    return Err(ErrorKind::AlreadyExists.into());
+                }
                 if do_move {
                     sv_path
                         .src
@@ -687,11 +692,11 @@ impl UserVfs for VirtualFS {
         self.list_f(&path).await
     }
 
-    async fn copy(&mut self, src: &Path, dest: &Path) -> io::Result<()> {
-        self.raw_transfer(src, dest, false).await
+    async fn copy(&mut self, src: &Path, dest: &Path, overwrite: bool) -> io::Result<()> {
+        self.raw_transfer(src, dest, false, overwrite).await
     }
 
-    async fn rename(&mut self, src: &Path, dest: &Path) -> io::Result<()> {
-        self.raw_transfer(src, dest, true).await
+    async fn rename(&mut self, src: &Path, dest: &Path, overwrite: bool) -> io::Result<()> {
+        self.raw_transfer(src, dest, true, overwrite).await
     }
 }
