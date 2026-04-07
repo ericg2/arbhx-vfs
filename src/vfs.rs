@@ -297,6 +297,15 @@ impl UserVfs for VirtualFS {
         self.resolve_path(path).await?.info().await
     }
 
+    async fn get_infos(&mut self) -> io::Result<Vec<VfsInfo>> {
+        let mut ret = Vec::new();
+        for x in self.user.points.clone() {
+            let path = format!("{}/{}", x.root, x.name);
+            ret.push(self.get_info(&PathBuf::from(path)).await?);
+        }
+        Ok(ret)
+    }
+
     async fn open_dir(&mut self, path: &Path, flags: DirFlags) -> io::Result<DirHandle> {
         let v_path = self.resolve_path(path).await?;
         let mut do_handle = |rel_path: PathBuf| {

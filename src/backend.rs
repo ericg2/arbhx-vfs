@@ -21,6 +21,7 @@ pub trait UserVfs: Send + Sync + Debug + Unpin + 'static {
     fn get_user(&self) -> VfsUser;
     fn get_handles(&self) -> Vec<VfsHandle>;
     async fn get_info(&mut self, path: &Path) -> io::Result<VfsInfo>;
+    async fn get_infos(&mut self) -> io::Result<Vec<VfsInfo>>;
     async fn open_dir(&mut self, path: &Path, flags: DirFlags) -> io::Result<DirHandle>;
     async fn open_file(&mut self, path: &Path, flags: VfsFlags) -> io::Result<FileHandle>;
     async fn open_seq(&mut self, path: &Path) -> io::Result<Mutex<SeqLockHandle>>;
@@ -78,7 +79,7 @@ impl VfsInfo {
     pub(crate) fn new(path: PathBuf, usage: Option<DataUsage>, vfs: Option<VfsPoint>) -> Self {
         Self { path, usage, vfs }
     }
-    
+
     pub fn path(&self) -> &Path {
         &self.path
     }
