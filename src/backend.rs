@@ -38,6 +38,7 @@ pub trait UserVfs: Send + Sync + Debug + Unpin + 'static {
     async fn list_h(&mut self, handle: Uuid) -> io::Result<Vec<VfsMetadata>>;
     async fn copy(&mut self, src: &Path, dest: &Path, overwrite: bool) -> io::Result<()>;
     async fn rename(&mut self, src: &Path, dest: &Path, overwrite: bool) -> io::Result<()>;
+    async fn realpath(&mut self, path: &Path) -> io::Result<PathBuf>;
 }
 
 #[derive(Error, Debug)]

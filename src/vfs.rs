@@ -740,4 +740,8 @@ impl UserVfs for VirtualFS {
     async fn rename(&mut self, src: &Path, dest: &Path, overwrite: bool) -> io::Result<()> {
         self.raw_transfer(src, dest, true, overwrite).await
     }
+
+    async fn realpath(&mut self, path: &Path) -> io::Result<PathBuf> {
+        Ok(Self::normalize_virtual_path(path))
+    }
 }
