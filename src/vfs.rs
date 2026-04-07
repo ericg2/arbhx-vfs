@@ -12,7 +12,7 @@ use bitflags::bitflags;
 use bytes::Bytes;
 use chrono::Duration;
 use futures_lite::{FutureExt, Stream, StreamExt};
-use log::{trace, warn};
+use log::{debug, trace, warn};
 use std::collections::{HashMap, HashSet};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -117,9 +117,40 @@ impl VirtualFS {
         }
     }
 
+    fn normalize_virtual_path(path: &Path) -> PathBuf {
+        let mut stack = Vec::new();
+
+        for comp in path.components() {
+            match comp {
+                std::path::Component::RootDir => {
+                    // Start from root
+                    stack.clear();
+                }
+                std::path::Component::ParentDir => {
+                    // Pop last component if possible, but never pop above root
+                    stack.pop();
+                }
+                std::path::Component::CurDir => {
+                    // Skip "."
+                }
+                std::path::Component::Normal(s) => {
+                    stack.push(s.to_str().unwrap());
+                }
+                _ => {}
+            }
+        }
+
+        // Build normalized path
+        let mut normalized = PathBuf::from("/");
+        for s in stack {
+            normalized.push(s.replace("\\", "/"));
+        }
+
+        normalized
+    }
+
     async fn resolve_path(&mut self, path: impl AsRef<Path>) -> io::Result<VirtualPath> {
-        let f_path = path
-            .as_ref()
+        let f_path = Self::normalize_virtual_path(path.as_ref())
             .to_str()
             .ok_or(io::Error::from(ErrorKind::InvalidInput))?
             .replace("\\", "/");
@@ -127,6 +158,7 @@ impl VirtualFS {
             .splitn(3, "/") // base / point / rest
             .map(|x| x.to_string())
             .collect();
+        debug!("Resolved path {f_path}");
 
         // Base component
         let start_path = spl.get(0).map(|s| s.as_str()).unwrap_or("");
