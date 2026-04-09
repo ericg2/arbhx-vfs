@@ -1,12 +1,11 @@
 mod backend;
-mod cache;
 mod config;
 mod handle;
 mod sequential;
 mod service;
 mod vfs;
-
-pub mod sftp;
+mod ftp;
+mod file;
 
 pub use backend::{AuthResult, UserAuthError, UserVfs, VfsAuth, VfsMetadata, VfsInfo};
 pub use config::{VfsPoint, VfsUser};
@@ -15,11 +14,8 @@ pub use handle::{VfsFlags, DirFlags};
 use sha2::{Digest, Sha256};
 pub use vfs::VirtualFS;
 
-// Re-export to allow systems to use it.
-pub use arbhx::DataMode;
-pub use arbhx::local::LocalConfig;
-pub use arbhx::remote::RemoteConfig;
-pub use arbhx::remote::services::*;
+/// Re-export of core stuff
+pub use arbhx_core::{DataUsage, Metadata};
 
 pub(crate) fn strip_all<'a>(st: &'a str, p: &'a str) -> &'a str {
     let x = st.strip_prefix(p).unwrap_or(st);
@@ -31,4 +27,12 @@ pub(crate) fn sha256_hash(input: &str) -> String {
     hasher.update(input.as_bytes());
     let result = hasher.finalize();
     hex::encode(result.as_slice())
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn do_test() {
+        
+    }
 }

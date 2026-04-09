@@ -1,13 +1,32 @@
-use arbhx::{DataMode};
+use std::fmt::{Display, Formatter};
+use std::path::Path;
+use std::sync::Arc;
+use arbhx_core::VfsBackend;
 use serde::{Deserialize, Serialize};
+use unftp_core::auth::UserDetail;
 use crate::sha256_hash;
 
-#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct VfsUser {
     pub user_name: String,
     pub sha256_hash: String,
     pub points: Vec<VfsPoint>,
     pub keys: Vec<String>,
+}
+
+impl Display for VfsUser {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+impl UserDetail for VfsUser {
+    fn account_enabled(&self) -> bool {
+        true
+    }
+    fn home(&self) -> Option<&Path> {
+        Some("/".as_ref())
+    }
 }
 
 impl VfsUser {
@@ -29,13 +48,13 @@ impl VfsUser {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct VfsPoint {
     pub name: String,
     pub root: String,
     pub can_write: bool,
     pub max_bytes: u64,
-    pub point: DataMode,
+    pub point: Arc<dyn VfsBackend>,
 }
 
 

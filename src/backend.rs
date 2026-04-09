@@ -1,8 +1,7 @@
 use crate::handle::{DirFlags, DirHandle, FileHandle, VfsFlags, VfsHandle};
 use crate::sequential::SeqLockHandle;
 use crate::{VfsPoint, VfsUser};
-use arbhx::DataUsage;
-use arbhx::fs::Metadata;
+use arbhx_core::{DataFull, DataReadSeek, DataUsage, DataWrite, Metadata};
 use async_trait::async_trait;
 use bytes::Bytes;
 use bytesize::ByteSize;
@@ -12,6 +11,7 @@ use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -24,12 +24,13 @@ pub trait UserVfs: Send + Sync + Debug + Unpin + 'static {
     async fn get_infos(&mut self) -> io::Result<Vec<VfsInfo>>;
     async fn open_dir(&mut self, path: &Path, flags: DirFlags) -> io::Result<DirHandle>;
     async fn open_file(&mut self, path: &Path, flags: VfsFlags) -> io::Result<FileHandle>;
-    async fn open_seq(&mut self, path: &Path) -> io::Result<Mutex<SeqLockHandle>>;
+    async fn open_read(&mut self, path: &Path) -> io::Result<Box<dyn DataReadSeek>>;
+    async fn open_seq(&mut self, path: &Path) -> io::Result<SeqLockHandle>;
+    async fn open_append(&mut self, path: &Path, overwrite: bool) -> io::Result<Box<dyn DataWrite>>;
+    async fn open_full(&mut self, path: &Path) -> io::Result<Box<dyn DataFull>>;
     async fn close(&mut self, handle: Uuid) -> io::Result<()>;
     async fn read(&mut self, handle: Uuid, offset: u64, length: u64) -> io::Result<Bytes>;
     async fn write(&mut self, handle: Uuid, offset: u64, data: Bytes) -> io::Result<usize>;
-    //async fn remove_file(&mut self, path: &Path) -> io::Result<()>;
-    //async fn remove_dir(&mut self, path: &Path) -> io::Result<()>;
     async fn remove(&mut self, path: &Path) -> io::Result<()>;
     async fn create_dir(&mut self, path: &Path) -> io::Result<()>;
     async fn stat_f(&mut self, path: &Path) -> io::Result<VfsMetadata>;
@@ -56,12 +57,12 @@ pub enum UserAuthError {
 pub type AuthResult<T> = Result<T, UserAuthError>;
 
 #[async_trait]
-pub trait VfsAuth: Send + Sync {
+pub trait VfsAuth: Send + Sync + Debug + Unpin + 'static  {
     async fn auth_pass(&self, username: &str, password: &str) -> AuthResult<Box<dyn UserVfs>>;
     async fn auth_key(&self, username: &str, key: &str) -> AuthResult<Box<dyn UserVfs>>;
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct VfsMetadata {
     pub(crate) path: PathBuf,
     pub(crate) is_dir: bool,
@@ -69,7 +70,42 @@ pub struct VfsMetadata {
     pub(crate) meta: Option<Metadata>,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+impl unftp_core::storage::Metadata for VfsMetadata {
+    fn len(&self) -> u64 {
+        self.meta.as_ref().map(|x| x.size()).unwrap_or(0)
+    }
+
+    fn is_dir(&self) -> bool {
+        self.meta.as_ref().map(|x| x.is_dir()).unwrap_or(true)
+    }
+
+    fn is_file(&self) -> bool {
+        self.meta.as_ref().map(|x| x.is_file()).unwrap_or(false)
+    }
+
+    fn is_symlink(&self) -> bool {
+        false
+    }
+
+    fn modified(&self) -> unftp_core::storage::Result<SystemTime> {
+        Ok(self
+            .meta
+            .as_ref()
+            .map(|x| x.mtime().map(|x| x.into()))
+            .flatten()
+            .unwrap_or(SystemTime::UNIX_EPOCH))
+    }
+
+    fn gid(&self) -> u32 {
+        0
+    }
+
+    fn uid(&self) -> u32 {
+        0
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct VfsInfo {
     pub(crate) path: PathBuf,
     pub(crate) usage: Option<DataUsage>,
@@ -155,7 +191,7 @@ impl VfsMetadata {
 
     /// # Returns
     /// The [`ByteSize`] of this node.
-    pub fn size(&self) -> ByteSize {
+    pub fn size(&self) -> u64 {
         self.meta.clone().map(|x| x.size()).unwrap_or_default()
     }
 

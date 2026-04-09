@@ -1,11 +1,12 @@
 use crate::backend::VfsInfo;
-use crate::file::DataFile;
+use crate::cache::DataCache;
 use crate::handle::{
     DirFlags, DirHandle, FileHandle, HandleMode, VfsFlags, VfsHandle, VirtualHandle,
 };
 use crate::sequential::SeqLockHandle;
 use crate::{UserVfs, VfsMetadata, VfsPoint, VfsUser};
-use arbhx_core::{DataFull, DataReadSeek, DataWrite, VfsBackend};
+use arbhx::fs::{DataFile, Metadata};
+use arbhx::{DataMode, DataRead, Operator};
 use async_trait::async_trait;
 use bitflags::bitflags;
 use bytes::Bytes;
@@ -31,7 +32,7 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct OneMatch {
     rel_path: PathBuf,
-    src: Arc<dyn VfsBackend>,
+    src: Operator,
     vfs: VfsPoint,
 }
 
@@ -39,10 +40,7 @@ impl OneMatch {
     async fn get_meta(&self) -> io::Result<VfsMetadata> {
         let meta = self
             .src
-            .clone()
-            .reader()
-            .ok_or(ErrorKind::Unsupported)?
-            .get_metadata(&self.rel_path)
+            .stat(&self.rel_path)
             .await?
             .ok_or(io::Error::from(ErrorKind::NotFound))?;
         let vfs = self.vfs.clone();
@@ -82,7 +80,7 @@ impl VirtualPath {
         Ok(match self {
             VirtualPath::ExactMatch(x) => VfsInfo {
                 path: x.rel_path,
-                usage: x.src.get_usage().await?,
+                usage: x.src.usage().await?,
                 vfs: Some(x.vfs),
             },
             VirtualPath::Multiple(x) => VfsInfo {
@@ -104,6 +102,7 @@ pub struct VirtualFS {
     user: VfsUser,
     handles: HashMap<Uuid, VirtualHandle>,
     offsets: HashMap<Uuid, u64>, // 4-4-26: Optimization to help with SEEK.
+    cache: DataCache,
     buffer: Arc<Semaphore>,
 }
 
@@ -112,6 +111,7 @@ impl VirtualFS {
         Self {
             user,
             handles: HashMap::new(),
+            cache: DataCache::new(),
             offsets: HashMap::new(),
             buffer: Arc::new(Semaphore::new(64)),
         }
@@ -173,13 +173,13 @@ impl VirtualFS {
                     .iter()
                     .find(|x| x.name == *point_name && x.root == start_path)
                 {
-                    let backend = src.point.clone();
+                    let backend = self.cache.get_data(src.point.clone()).await?;
                     let rel_path = spl
                         .get(2)
                         .map(|s| format!("/{}", s))
                         .unwrap_or_else(|| "/".to_string());
                     let mut vfs = src.clone();
-                    if vfs.can_write && !backend.clone().writer().is_none() {
+                    if vfs.can_write && !backend.info().can_append {
                         vfs.can_write = false; // *** set it to false!
                     }
                     Ok(VirtualPath::ExactMatch(OneMatch {
@@ -225,7 +225,7 @@ impl VirtualFS {
         ) {
             // Read-only
             (true, false, _, _) => {
-                let reader = file.open_read_full().await?;
+                let reader = file.open_read().await?;
                 Ok(HandleMode::Read(Mutex::new(reader)))
             }
 
@@ -254,7 +254,7 @@ impl VirtualFS {
 
             // Should not happen: read & no write & not append
             (false, false, _, _) => {
-                let reader = file.open_read_full().await?;
+                let reader = file.open_read().await?;
                 Ok(HandleMode::Read(Mutex::new(reader)))
             }
         }
@@ -283,27 +283,34 @@ impl VirtualFS {
         }
 
         // 4-3-26: All moves have to be in the same backend!
-        if sv_path.src.id() == dv_path.src.id() {
-            if let Some(vfs) = dv_path.src.clone().full() {
-                if !do_overwrite && vfs.get_metadata(dest).await?.is_some() {
+        if dv_path.src.info().can_append {
+            if sv_path.src.id() == dv_path.src.id() {
+                // 4-5-26: Check if we need to overwrite or not...
+                if !do_overwrite && dv_path.src.stat(&dest).await?.is_some() {
                     return Err(ErrorKind::AlreadyExists.into());
                 }
                 if do_move {
-                    vfs.move_to(&sv_path.rel_path, &dv_path.rel_path).await
+                    sv_path
+                        .src
+                        .move_to(&sv_path.rel_path, &dv_path.rel_path)
+                        .await
                 } else {
-                    if let Some(usage) = dv_path.src.get_usage().await? {
+                    if let Some(usage) = dv_path.src.usage().await? {
                         let size = sv_path.get_meta().await?.size();
                         if size >= usage.free_bytes {
                             return Err(ErrorKind::QuotaExceeded.into());
                         }
                     }
-                    vfs.copy_to(&sv_path.rel_path, &dv_path.rel_path).await
+                    sv_path
+                        .src
+                        .copy_to(&sv_path.rel_path, &dv_path.rel_path)
+                        .await
                 }
             } else {
-                Err(ErrorKind::ReadOnlyFilesystem.into()) // *** not allowed to write!
+                Err(ErrorKind::CrossesDevices.into()) // *** cannot cross FS!
             }
         } else {
-            Err(ErrorKind::CrossesDevices.into()) // *** cannot cross FS!
+            Err(ErrorKind::ReadOnlyFilesystem.into()) // *** not allowed to write!
         }
     }
 }
@@ -355,11 +362,10 @@ impl UserVfs for VirtualFS {
             // =========================
             VirtualPath::ExactMatch(v) => {
                 // Enforce read-only if backend is not writable
-                let reader = v.src.clone().reader().ok_or(ErrorKind::Unsupported)?;
                 if !v.vfs.can_write && flags.bits() != DirFlags::READ.bits() {
                     return Err(ErrorKind::ReadOnlyFilesystem.into());
                 }
-                match reader.get_metadata(&v.rel_path).await? {
+                match v.src.stat(&v.rel_path).await? {
                     Some(meta) => {
                         if !meta.is_dir() {
                             return Err(ErrorKind::NotADirectory.into());
@@ -373,12 +379,7 @@ impl UserVfs for VirtualFS {
                             if !v.vfs.can_write {
                                 return Err(ErrorKind::ReadOnlyFilesystem.into());
                             }
-                            v.src
-                                .clone()
-                                .writer()
-                                .ok_or(ErrorKind::Unsupported)?
-                                .create_dir(&v.rel_path)
-                                .await?;
+                            v.src.create_dir(&v.rel_path).await?;
                         } else {
                             return Err(ErrorKind::NotFound.into());
                         }
@@ -386,12 +387,7 @@ impl UserVfs for VirtualFS {
                 }
 
                 // At this point it's guaranteed to exist and be a directory
-                if !reader
-                    .get_metadata(&v.rel_path)
-                    .await?
-                    .ok_or(ErrorKind::NotFound)?
-                    .is_dir()
-                {
+                if !v.src.get_existing(&v.rel_path).await?.metadata().is_dir() {
                     return Err(ErrorKind::NotADirectory.into());
                 }
             }
@@ -430,8 +426,7 @@ impl UserVfs for VirtualFS {
         }
 
         // Handle all rules to fix the file backend.
-        let reader = v_path.src.clone().reader().ok_or(ErrorKind::Unsupported)?;
-        let existing_file = reader.get_metadata(&v_path.rel_path).await?;
+        let existing_file = v_path.src.stat(&v_path.rel_path).await?;
         let did_create: bool = existing_file.is_none();
         if existing_file.is_some()
             && flags.contains(VfsFlags::CREATE)
@@ -441,34 +436,21 @@ impl UserVfs for VirtualFS {
         }
         if existing_file.is_none() {
             if flags.contains(VfsFlags::CREATE) {
-                // 4-8-26: Make sure the file actually exists!
-                if reader.get_metadata(&v_path.rel_path).await?.is_none() {
-                    v_path
-                        .src
-                        .clone()
-                        .writer()
-                        .ok_or(ErrorKind::ReadOnlyFilesystem)?
-                        .set_length(&v_path.rel_path, 0)
-                        .await?;
-                }
+                v_path.src.ensure_file(&v_path.rel_path).await?;
             } else {
                 return Err(ErrorKind::NotFound.into());
             }
         }
 
         // Get or create the actual file object
-        let meta = reader
-            .get_metadata(&v_path.rel_path)
-            .await?
-            .ok_or(ErrorKind::NotFound)?;
-        if meta.is_dir() {
+        let file = v_path.src.get_existing(&v_path.rel_path).await?;
+        if file.metadata().is_dir() {
             return Err(ErrorKind::IsADirectory.into());
         }
 
         let id = Uuid::new_v4();
-        let path = meta.path().to_path_buf();
-        let meta = meta.clone();
-        let file = DataFile::new(&v_path.rel_path, meta.clone(), v_path.src.clone());
+        let path = file.path().to_path_buf();
+        let meta = file.metadata().clone();
         let mode = self.raw_open_handle(file, flags, did_create).await?;
         self.handles.insert(
             id,
@@ -483,17 +465,7 @@ impl UserVfs for VirtualFS {
         Ok(FileHandle { id, path, flags })
     }
 
-    async fn open_read(&mut self, path: &Path) -> io::Result<Box<dyn DataReadSeek>> {
-        let f = self.open_file(path, VfsFlags::READ).await?;
-        let handle = self.handles.remove(&f.id).ok_or(ErrorKind::NotFound)?;
-        if let HandleMode::Read(x) = handle.mode {
-            Ok(x.into_inner())
-        } else {
-            Err(ErrorKind::Unsupported.into())
-        }
-    }
-
-    async fn open_seq(&mut self, path: &Path) -> io::Result<SeqLockHandle> {
+    async fn open_seq(&mut self, path: &Path) -> io::Result<Mutex<SeqLockHandle>> {
         let ret = self
             .open_file(
                 path,
@@ -502,34 +474,10 @@ impl UserVfs for VirtualFS {
             .await?;
         if let Some(handle) = self.handles.remove(&ret.id) {
             if let HandleMode::AppendRW(x) = handle.mode {
-                return Ok(x.into_inner());
+                return Ok(x);
             }
         }
         unreachable!("Expected to open handle!")
-    }
-
-    async fn open_append(&mut self, path: &Path, overwrite: bool) -> io::Result<Box<dyn DataWrite>> {
-        let mut flags = VfsFlags::WRITE | VfsFlags::APPEND | VfsFlags::CREATE;
-        if overwrite {
-            flags |= VfsFlags::TRUNCATE;
-        }
-        let f = self.open_file(path, flags).await?;
-        let handle = self.handles.remove(&f.id).ok_or(ErrorKind::NotFound)?;
-        if let HandleMode::Append(x) = handle.mode {
-            Ok(x.into_inner())
-        } else {
-            Err(ErrorKind::Unsupported.into())
-        }
-    }
-
-    async fn open_full(&mut self, path: &Path) -> io::Result<Box<dyn DataFull>> {
-        let f = self.open_file(path, VfsFlags::READ | VfsFlags::WRITE | VfsFlags::CREATE).await?;
-        let handle = self.handles.remove(&f.id).ok_or(ErrorKind::NotFound)?;
-        if let HandleMode::FullRW(x) = handle.mode {
-            Ok(x.into_inner())
-        } else {
-            Err(ErrorKind::Unsupported.into())
-        }
     }
 
     async fn close(&mut self, handle: Uuid) -> io::Result<()> {
@@ -548,10 +496,10 @@ impl UserVfs for VirtualFS {
         warn!("read - {handle:?}; offset: {offset}; length: {length}");
         let vfs = self.handles.get_mut(&handle).ok_or(ErrorKind::NotFound)?;
         let length = if let Some(ref meta) = vfs.meta {
-            if offset >= meta.size() {
+            if offset >= meta.size().0 {
                 return Err(ErrorKind::UnexpectedEof.into());
             }
-            (meta.size() - offset).min(length)
+            (meta.size().0 - offset).min(length)
         } else {
             length
         } as usize;
@@ -583,6 +531,7 @@ impl UserVfs for VirtualFS {
             HandleMode::Read(ref mut x) => {
                 let _permit = self.buffer.acquire().await.map_err(|_| ErrorKind::Other)?;
                 let lck = &mut *x.lock().await;
+                warn!("SEMAPHORE ACQUIRED");
                 read_exact_from(lck, offset, length, do_seek)
                     .await
                     .map(|(b, n)| (b, n))
@@ -597,8 +546,8 @@ impl UserVfs for VirtualFS {
             HandleMode::AppendRW(ref mut x) => {
                 let _permit = self.buffer.acquire().await.map_err(|_| ErrorKind::Other)?;
                 let lck = &mut *x.lock().await;
-                let lck2 = lck.lock_read().await?;
-                read_exact_from(lck2, offset, length, do_seek)
+                let mut lck2 = lck.lock_read().await?;
+                read_exact_from(&mut lck2, offset, length, do_seek)
                     .await
                     .map(|(b, n)| (b, n))
             }
@@ -617,8 +566,8 @@ impl UserVfs for VirtualFS {
         let vfs = self.handles.get_mut(&handle).ok_or(ErrorKind::NotFound)?;
         let check_space = async || {
             if let Some(ref src) = vfs.src {
-                if let Some(x) = src.get_usage().await? {
-                    if data.len() as u64 > x.free_bytes {
+                if let Some(x) = src.usage().await? {
+                    if data.len() as u64 > x.free_bytes.as_u64() {
                         return Err(io::Error::from(ErrorKind::QuotaExceeded));
                     }
                 }
@@ -638,7 +587,8 @@ impl UserVfs for VirtualFS {
                 let _permit = self.buffer.acquire().await.map_err(|_| ErrorKind::Other)?;
                 check_space().await?; // TODO: add offset checking here!
                 let lck = &mut *x.lock().await;
-                lck.lock_write().await?.write(&*data).await
+                let lck2 = lck.lock_write().await?;
+                lck2.write(&*data).await
             }
             HandleMode::Append(ref mut x) => {
                 let _permit = self.buffer.acquire().await.map_err(|_| ErrorKind::Other)?;
@@ -661,11 +611,10 @@ impl UserVfs for VirtualFS {
             return Err(ErrorKind::ReadOnlyFilesystem.into());
         }
         let meta = v_path.get_meta().await?;
-        let writer = v_path.src.writer().ok_or(ErrorKind::ReadOnlyFilesystem)?;
         if meta.is_dir() {
-            writer.remove_dir(&v_path.rel_path).await?;
+            v_path.src.remove_dir(&v_path.rel_path).await?;
         } else {
-            writer.remove_file(&v_path.rel_path).await?;
+            v_path.src.remove_file(&v_path.rel_path).await?;
         }
         self.handles.retain(|_, x| !x.path.starts_with(path));
         Ok(())
@@ -680,12 +629,7 @@ impl UserVfs for VirtualFS {
         if !v_path.vfs.can_write {
             return Err(ErrorKind::ReadOnlyFilesystem.into());
         }
-        v_path
-            .src
-            .writer()
-            .ok_or(ErrorKind::ReadOnlyFilesystem)?
-            .create_dir(&v_path.rel_path)
-            .await?;
+        v_path.src.create_dir(&v_path.rel_path).await?;
         Ok(())
     }
 
@@ -728,20 +672,18 @@ impl UserVfs for VirtualFS {
         trace!("list_f - {path:?}");
         match self.resolve_path(path).await? {
             VirtualPath::ExactMatch(x) => {
-                let li = x
-                    .src
-                    .reader()
-                    .ok_or(ErrorKind::Unsupported)?
-                    .read_dir(&x.rel_path, None, false, false)
-                    .await?;
+                let li = x.src.list(&x.rel_path, None, false, false).await?;
                 let it = li.stream().await?;
                 let ret = it
                     .filter_map(|x| x.ok())
-                    .map(|meta| VfsMetadata {
-                        path: meta.path().to_path_buf(),
-                        is_dir: meta.is_dir(),
-                        vfs: Some(x.vfs.clone()),
-                        meta: Some(meta),
+                    .map(|z| {
+                        let meta = z.metadata();
+                        VfsMetadata {
+                            path: z.path().to_path_buf(),
+                            is_dir: meta.is_dir(),
+                            vfs: Some(x.vfs.clone()),
+                            meta: Some(meta),
+                        }
                     })
                     .filter(|y| y.path != x.rel_path)
                     .collect::<Vec<_>>()

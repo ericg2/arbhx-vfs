@@ -2,6 +2,7 @@ use std::sync::RwLock;
 use async_trait::async_trait;
 use crate::{sha256_hash, AuthResult, UserAuthError, UserVfs, VfsAuth, VfsUser, VirtualFS};
 
+#[derive(Debug)]
 pub struct VfsManager {
     users: RwLock<Vec<VfsUser>>,
 }

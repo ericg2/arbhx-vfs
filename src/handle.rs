@@ -1,6 +1,6 @@
 use std::path::PathBuf;
-use arbhx::{DataAppend, DataFull, DataRead, Operator};
-use arbhx::fs::Metadata;
+use std::sync::Arc;
+use arbhx_core::{DataFull, DataRead, DataReadSeek, DataWrite, Metadata, VfsBackend};
 use bitflags::bitflags;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -85,10 +85,10 @@ impl From<&VirtualHandle> for VfsHandle {
 
 #[derive(Debug)]
 pub enum HandleMode {
-    Read(Mutex<Box<dyn DataRead>>),
+    Read(Mutex<Box<dyn DataReadSeek>>),
     FullRW(Mutex<Box<dyn DataFull>>),
     AppendRW(Mutex<SeqLockHandle>),
-    Append(Mutex<Box<dyn DataAppend>>),
+    Append(Mutex<Box<dyn DataWrite>>),
     Directory(DirFlags),
 }
 
@@ -98,6 +98,6 @@ pub struct VirtualHandle {
     pub mode: HandleMode,
     pub path: PathBuf,
     pub meta: Option<Metadata>,
-    pub src: Option<Operator>,
+    pub src: Option<Arc<dyn VfsBackend>>,
 }
 

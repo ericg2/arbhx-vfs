@@ -1,8 +1,8 @@
 use std::io;
 use std::io::{ErrorKind, Read};
 use std::path::PathBuf;
-use arbhx::{DataAppend, DataRead};
-use arbhx::fs::DataFile;
+use arbhx_core::{DataReadSeek, DataWrite};
+use crate::file::DataFile;
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 enum WriteMode {
@@ -14,8 +14,8 @@ enum WriteMode {
 pub struct SeqLockHandle {
     path: PathBuf,
     file: DataFile,
-    read: Option<Box<dyn DataRead>>,
-    write: Option<Box<dyn DataAppend>>,
+    read: Option<Box<dyn DataReadSeek>>,
+    write: Option<Box<dyn DataWrite>>,
     mode: WriteMode,
     dirty: bool,
 }
@@ -40,7 +40,7 @@ impl SeqLockHandle {
         self.path.to_owned()
     }
 
-    pub async fn lock_read(&mut self) -> io::Result<&mut dyn DataRead> {
+    pub async fn lock_read(&mut self) -> io::Result<&mut dyn DataReadSeek> {
         // If writing, close (commit) first
         if let Some(mut w) = self.write.take() {
             w.close().await?;
@@ -54,7 +54,7 @@ impl SeqLockHandle {
                 // backend-specific: either return empty reader or just open normally
                 // assuming backend now reflects empty file after commit
             }
-            self.read = Some(self.file.open_read().await?);
+            self.read = Some(self.file.open_read_full().await?);
         }
 
         self.read
@@ -62,7 +62,7 @@ impl SeqLockHandle {
             .ok_or_else(|| io::Error::new(ErrorKind::Other, "failed to acquire read handle"))
     }
 
-    pub async fn lock_write(&mut self) -> io::Result<&mut dyn DataAppend> {
+    pub async fn lock_write(&mut self) -> io::Result<&mut dyn DataWrite> {
         // drop read handle (no commit needed)
         self.read = None;
 
