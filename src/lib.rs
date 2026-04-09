@@ -89,7 +89,8 @@ mod tests {
         for item in ret {
             println!("{:?}", item.path());
         }
-        x.create_dir("/abcd/test/helloworld".as_ref()).await.unwrap();
+        let h = x.open_read("/abcd/test/rider.exe".as_ref()).await;
+        println!("DID it!")
         //   x.create_dir("/abcd".as_ref()).await.unwrap();
     }
 }

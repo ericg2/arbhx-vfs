@@ -1,6 +1,6 @@
 [package]
 name = "arbhx-vfs"
-version = "0.4.4"
+version = "0.4.5"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "An advanced VFS layer for Arbhx."
@@ -38,4 +38,4 @@ hex = "0.4.3"
 simplelog = "0.12.2"
 
 [dev-dependencies]
-arbhx-local = "=0.4.1"
+arbhx-local = "=0.4.2"
