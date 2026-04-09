@@ -73,7 +73,7 @@ impl DataFile {
             .clone()
             .full()
             .ok_or(ErrorKind::Unsupported)?
-            .open_full_random()
+            .open_full_random(&self.path)
             .await?
             .ok_or(ErrorKind::Unsupported.into())
     }

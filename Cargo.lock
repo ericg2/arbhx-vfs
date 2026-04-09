@@ -19,9 +19,9 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "arbhx-core"
-version = "1.1.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79727ccf982df5ab05715f056cb498a423cd0bad69e06337063a99810b3a6cfc"
+checksum = "702ee2ff3ebad5dc8335305abd9c1b41b75a72d6efe84d3691fba5518d0c3ee5"
 dependencies = [
  "async-trait",
  "chrono",
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "arbhx-vfs"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "arbhx-core",
  "async-trait",
