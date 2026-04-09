@@ -1,3 +1,4 @@
+use crate::config::{VfsPoint, VfsUser};
 use crate::handle::{DirFlags, DirHandle, FileHandle, VfsFlags, VfsHandle};
 use crate::sequential::SeqLockHandle;
 use arbhx_core::{DataFull, DataReadSeek, DataUsage, DataWrite, Metadata};
@@ -14,7 +15,6 @@ use std::time::SystemTime;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use uuid::Uuid;
-use crate::config::{VfsPoint, VfsUser};
 
 #[async_trait]
 pub trait UserVfs: Send + Sync + Debug + Unpin + 'static {
@@ -26,7 +26,8 @@ pub trait UserVfs: Send + Sync + Debug + Unpin + 'static {
     async fn open_file(&mut self, path: &Path, flags: VfsFlags) -> io::Result<FileHandle>;
     async fn open_read(&mut self, path: &Path) -> io::Result<Box<dyn DataReadSeek>>;
     async fn open_seq(&mut self, path: &Path) -> io::Result<SeqLockHandle>;
-    async fn open_append(&mut self, path: &Path, overwrite: bool) -> io::Result<Box<dyn DataWrite>>;
+    async fn open_append(&mut self, path: &Path, overwrite: bool)
+    -> io::Result<Box<dyn DataWrite>>;
     async fn open_full(&mut self, path: &Path) -> io::Result<Box<dyn DataFull>>;
     async fn close(&mut self, handle: Uuid) -> io::Result<()>;
     async fn read(&mut self, handle: Uuid, offset: u64, length: u64) -> io::Result<Bytes>;
@@ -57,18 +58,10 @@ pub enum UserAuthError {
 pub type AuthResult<T> = Result<T, UserAuthError>;
 
 #[async_trait]
-pub trait VfsAuth: Send + Sync + Debug + Unpin + 'static  {
+pub trait VfsAuth: Send + Sync + Debug + Unpin + 'static {
     async fn auth_pass(&self, username: &str, password: &str) -> AuthResult<Box<dyn UserVfs>>;
     async fn auth_key(&self, username: &str, key: &str) -> AuthResult<Box<dyn UserVfs>>;
     async fn get_user(&self, username: &str) -> Option<VfsUser>;
-}
-
-#[derive(Clone, Debug)]
-pub struct VfsMetadata {
-    pub(crate) path: PathBuf,
-    pub(crate) is_dir: bool,
-    pub(crate) vfs: Option<VfsPoint>,
-    pub(crate) meta: Option<Metadata>,
 }
 
 #[derive(Clone, Debug)]
@@ -94,15 +87,28 @@ impl VfsInfo {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct VfsMetadata {
+    full_path: PathBuf,
+    rel_path: PathBuf,
+    is_dir: bool,
+    vfs: Option<VfsPoint>,
+    meta: Option<Metadata>,
+}
+
 impl VfsMetadata {
-    pub(crate) fn new(
-        path: PathBuf,
+    pub(crate) fn from_be(
+        prefix: PathBuf,
+        rel_path: PathBuf,
         is_dir: bool,
         vfs: Option<VfsPoint>,
         meta: Option<Metadata>,
     ) -> Self {
+        let full_path = crate::join_force(prefix, &rel_path);
+        let meta = meta.clone().map(|x| x.set_path(&full_path));
         Self {
-            path,
+            full_path: crate::fix_path(full_path, false),
+            rel_path: crate::fix_path(rel_path, true),
             vfs,
             is_dir,
             meta,
@@ -118,13 +124,19 @@ impl VfsMetadata {
     /// # Returns
     /// The [`Path::file_name`] of this file.
     pub fn name(&self) -> &OsStr {
-        self.path.file_name().unwrap_or_default()
+        self.full_path.file_name().unwrap_or_default()
     }
 
     /// # Returns
     /// The full, absolute [`Path`] of the node.
     pub fn path(&self) -> &Path {
-        &self.path
+        &self.full_path
+    }
+
+    /// # Returns
+    /// The [`Path`] relative to the original [`VfsPoint`].
+    pub fn vfs_path(&self) -> &Path {
+        &self.rel_path
     }
 
     /// # Returns

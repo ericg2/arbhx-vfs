@@ -1,9 +1,11 @@
 use crate::backend::VfsInfo;
+use crate::config::{VfsPoint, VfsUser};
 use crate::file::DataFile;
 use crate::handle::{
     DirFlags, DirHandle, FileHandle, HandleMode, VfsFlags, VfsHandle, VirtualHandle,
 };
 use crate::sequential::SeqLockHandle;
+use crate::{UserVfs, VfsMetadata};
 use arbhx_core::{DataFull, DataReadSeek, DataWrite, VfsBackend};
 use async_trait::async_trait;
 use bitflags::bitflags;
@@ -26,11 +28,10 @@ use tokio::io::{AsyncRead, AsyncSeek};
 use tokio::sync::{Mutex, Semaphore};
 use tokio::time::sleep;
 use uuid::Uuid;
-use crate::config::{VfsPoint, VfsUser};
-use crate::{UserVfs, VfsMetadata};
 
 #[derive(Clone)]
 struct OneMatch {
+    prefix: PathBuf,
     rel_path: PathBuf,
     src: Arc<dyn VfsBackend>,
     vfs: VfsPoint,
@@ -48,18 +49,20 @@ impl OneMatch {
             .ok_or(io::Error::from(ErrorKind::NotFound))?;
         let vfs = self.vfs.clone();
         let path = self.rel_path.clone();
-        let is_dir = meta.is_dir();
-        Ok(VfsMetadata {
+        let ret = VfsMetadata::from_be(
+            self.prefix.clone(),
             path,
-            vfs: Some(vfs),
-            meta: Some(meta),
-            is_dir,
-        })
+            meta.is_dir(),
+            Some(vfs),
+            Some(meta),
+        );
+        Ok(ret)
     }
 }
 
 #[derive(Clone)]
 struct ListMatch {
+    prefix: PathBuf,
     rel_path: PathBuf,
     names: Vec<String>, // 4-3-26: We don't use Operator to avoid init.
 }
@@ -174,18 +177,21 @@ impl VirtualFS {
                     .iter()
                     .find(|x| x.name == *point_name && x.root == start_path)
                 {
+                    let prefix = PathBuf::from(format!("/{start_path}/{point_name}"));
                     let backend = src.point.clone();
                     let rel_path = spl
                         .get(2)
                         .map(|s| format!("/{}", s))
                         .unwrap_or_else(|| "/".to_string());
                     let mut vfs = src.clone();
-                    if vfs.can_write && !backend.clone().writer().is_none() {
-                        vfs.can_write = false; // *** set it to false!
+                    let w = backend.clone().writer();
+                    if w.is_none() {
+                        vfs.can_write = false;
                     }
                     Ok(VirtualPath::ExactMatch(OneMatch {
                         rel_path: PathBuf::from(rel_path),
                         src: backend,
+                        prefix,
                         vfs,
                     }))
                 } else {
@@ -195,6 +201,7 @@ impl VirtualFS {
             None => {
                 // Only the base is specified: return all points under that base
                 let ret = ListMatch {
+                    prefix: PathBuf::from(format!("/{start_path}")),
                     rel_path: PathBuf::from(f_path),
                     names: self
                         .user
@@ -509,7 +516,11 @@ impl UserVfs for VirtualFS {
         unreachable!("Expected to open handle!")
     }
 
-    async fn open_append(&mut self, path: &Path, overwrite: bool) -> io::Result<Box<dyn DataWrite>> {
+    async fn open_append(
+        &mut self,
+        path: &Path,
+        overwrite: bool,
+    ) -> io::Result<Box<dyn DataWrite>> {
         let mut flags = VfsFlags::WRITE | VfsFlags::APPEND | VfsFlags::CREATE;
         if overwrite {
             flags |= VfsFlags::TRUNCATE;
@@ -524,7 +535,9 @@ impl UserVfs for VirtualFS {
     }
 
     async fn open_full(&mut self, path: &Path) -> io::Result<Box<dyn DataFull>> {
-        let f = self.open_file(path, VfsFlags::READ | VfsFlags::WRITE | VfsFlags::CREATE).await?;
+        let f = self
+            .open_file(path, VfsFlags::READ | VfsFlags::WRITE | VfsFlags::CREATE)
+            .await?;
         let handle = self.handles.remove(&f.id).ok_or(ErrorKind::NotFound)?;
         if let HandleMode::FullRW(x) = handle.mode {
             Ok(x.into_inner())
@@ -695,22 +708,10 @@ impl UserVfs for VirtualFS {
         match self.resolve_path(path).await? {
             VirtualPath::ExactMatch(x) => Ok(x.get_meta().await?),
             VirtualPath::Multiple(x) => {
-                let meta = VfsMetadata {
-                    path: x.rel_path,
-                    is_dir: true,
-                    vfs: None,
-                    meta: None,
-                };
-                Ok(meta)
+                Ok(VfsMetadata::from_be(x.prefix, x.rel_path, true, None, None))
             }
-            VirtualPath::Root(path) => {
-                let meta = VfsMetadata {
-                    path,
-                    is_dir: true,
-                    vfs: None,
-                    meta: None,
-                };
-                Ok(meta)
+            VirtualPath::Root(root) => {
+                Ok(VfsMetadata::from_be(root, PathBuf::new(), true, None, None))
             }
         }
     }
@@ -738,28 +739,32 @@ impl UserVfs for VirtualFS {
                 let it = li.stream().await?;
                 let ret = it
                     .filter_map(|x| x.ok())
-                    .map(|meta| VfsMetadata {
-                        path: meta.path().to_path_buf(),
-                        is_dir: meta.is_dir(),
-                        vfs: Some(x.vfs.clone()),
-                        meta: Some(meta),
+                    .map(|meta| {
+                        VfsMetadata::from_be(
+                            x.prefix.clone(),
+                            meta.path().to_path_buf(),
+                            meta.is_dir(),
+                            Some(x.vfs.clone()),
+                            Some(meta),
+                        )
                     })
-                    .filter(|y| y.path != x.rel_path)
+                    .filter(|y| y.vfs_path() != x.rel_path)
                     .collect::<Vec<_>>()
                     .await;
                 println!("{:?}", ret);
                 Ok(ret)
             }
-            VirtualPath::Multiple(x) => Ok(x
+            VirtualPath::Multiple(m) => Ok(m
                 .names
                 .iter()
                 .map(|x| {
-                    Ok(VfsMetadata {
-                        path: PathBuf::from(x),
-                        is_dir: true,
-                        vfs: None,
-                        meta: None,
-                    })
+                    Ok(VfsMetadata::from_be(
+                        m.prefix.clone(),
+                        PathBuf::from_str(x).unwrap(),
+                        true,
+                        None,
+                        None,
+                    ))
                 })
                 .collect::<io::Result<Vec<_>>>()?),
             VirtualPath::Root(_) => {
@@ -772,11 +777,8 @@ impl UserVfs for VirtualFS {
                     .collect::<HashSet<_>>();
                 Ok(roots
                     .into_iter()
-                    .map(|x| VfsMetadata {
-                        path: PathBuf::from(x),
-                        is_dir: true,
-                        vfs: None,
-                        meta: None,
+                    .map(|x| {
+                        VfsMetadata::from_be(PathBuf::from(x), PathBuf::new(), true, None, None)
                     })
                     .collect())
             }
