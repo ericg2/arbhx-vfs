@@ -60,6 +60,7 @@ pub type AuthResult<T> = Result<T, UserAuthError>;
 pub trait VfsAuth: Send + Sync + Debug + Unpin + 'static  {
     async fn auth_pass(&self, username: &str, password: &str) -> AuthResult<Box<dyn UserVfs>>;
     async fn auth_key(&self, username: &str, key: &str) -> AuthResult<Box<dyn UserVfs>>;
+    async fn get_user(&self, username: &str) -> Option<VfsUser>;
 }
 
 #[derive(Clone, Debug)]

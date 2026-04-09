@@ -1,16 +1,17 @@
+use crate::config::VfsUser;
 use crate::{UserAuthError, UserVfs, VfsAuth};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use std::fmt::Debug;
-use std::io;
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncSeekExt};
-use unftp_core::auth::{AuthenticationError, Authenticator, Credentials, Principal};
+use unftp_core::auth::{
+    AuthenticationError, Authenticator, Credentials, Principal, UserDetailError, UserDetailProvider,
+};
 use unftp_core::storage;
-use unftp_core::storage::{ErrorKind, FEATURE_RESTART, Fileinfo, Metadata, StorageBackend};
-use crate::config::VfsUser;
+use unftp_core::storage::{ErrorKind, Fileinfo, Metadata, StorageBackend};
 
 #[derive(Debug)]
 struct UserSession {
@@ -58,6 +59,23 @@ impl From<UserAuthError> for AuthenticationError {
                 None,
             ),
         }
+    }
+}
+
+#[async_trait]
+impl UserDetailProvider for FtpBackend {
+    type User = VfsUser;
+
+    async fn provide_user_detail(
+        &self,
+        principal: &Principal,
+    ) -> Result<Self::User, UserDetailError> {
+        self.auth
+            .get_user(&principal.username)
+            .await
+            .ok_or(UserDetailError::UserNotFound {
+                username: principal.username.to_string(),
+            })
     }
 }
 

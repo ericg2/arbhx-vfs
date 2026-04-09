@@ -56,4 +56,8 @@ impl VfsAuth for VfsManager {
             Err(UserAuthError::InvalidLogin)
         }
     }
+
+    async fn get_user(&self, username: &str) -> Option<VfsUser> {
+        self.users.read().unwrap().iter().find(|x|x.user_name == username).cloned()
+    }
 }
