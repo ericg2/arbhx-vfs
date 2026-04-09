@@ -71,41 +71,6 @@ pub struct VfsMetadata {
     pub(crate) meta: Option<Metadata>,
 }
 
-impl unftp_core::storage::Metadata for VfsMetadata {
-    fn len(&self) -> u64 {
-        self.meta.as_ref().map(|x| x.size()).unwrap_or(0)
-    }
-
-    fn is_dir(&self) -> bool {
-        self.meta.as_ref().map(|x| x.is_dir()).unwrap_or(true)
-    }
-
-    fn is_file(&self) -> bool {
-        self.meta.as_ref().map(|x| x.is_file()).unwrap_or(false)
-    }
-
-    fn is_symlink(&self) -> bool {
-        false
-    }
-
-    fn modified(&self) -> unftp_core::storage::Result<SystemTime> {
-        Ok(self
-            .meta
-            .as_ref()
-            .map(|x| x.mtime().map(|x| x.into()))
-            .flatten()
-            .unwrap_or(SystemTime::UNIX_EPOCH))
-    }
-
-    fn gid(&self) -> u32 {
-        0
-    }
-
-    fn uid(&self) -> u32 {
-        0
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct VfsInfo {
     pub(crate) path: PathBuf,

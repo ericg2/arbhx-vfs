@@ -3,7 +3,6 @@ use std::path::Path;
 use std::sync::Arc;
 use arbhx_core::VfsBackend;
 use serde::{Deserialize, Serialize};
-use unftp_core::auth::UserDetail;
 use crate::sha256_hash;
 
 #[derive(Clone, Debug)]
@@ -17,15 +16,6 @@ pub struct VfsUser {
 impl Display for VfsUser {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         todo!()
-    }
-}
-
-impl UserDetail for VfsUser {
-    fn account_enabled(&self) -> bool {
-        true
-    }
-    fn home(&self) -> Option<&Path> {
-        Some("/".as_ref())
     }
 }
 

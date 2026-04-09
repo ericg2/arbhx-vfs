@@ -10,7 +10,6 @@ pub use backend::{AuthResult, UserAuthError, UserVfs, VfsAuth, VfsMetadata, VfsI
 pub use service::VfsManager;
 pub use vfs::VirtualFS;
 
-pub mod ftp;
 pub mod config;
 pub mod handle;
 
