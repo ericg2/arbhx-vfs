@@ -4,7 +4,6 @@ use crate::handle::{
     DirFlags, DirHandle, FileHandle, HandleMode, VfsFlags, VfsHandle, VirtualHandle,
 };
 use crate::sequential::SeqLockHandle;
-use crate::{UserVfs, VfsMetadata, VfsPoint, VfsUser};
 use arbhx_core::{DataFull, DataReadSeek, DataWrite, VfsBackend};
 use async_trait::async_trait;
 use bitflags::bitflags;
@@ -27,6 +26,8 @@ use tokio::io::{AsyncRead, AsyncSeek};
 use tokio::sync::{Mutex, Semaphore};
 use tokio::time::sleep;
 use uuid::Uuid;
+use crate::config::{VfsPoint, VfsUser};
+use crate::{UserVfs, VfsMetadata};
 
 #[derive(Clone)]
 struct OneMatch {

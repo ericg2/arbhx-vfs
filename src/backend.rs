@@ -1,6 +1,5 @@
 use crate::handle::{DirFlags, DirHandle, FileHandle, VfsFlags, VfsHandle};
 use crate::sequential::SeqLockHandle;
-use crate::{VfsPoint, VfsUser};
 use arbhx_core::{DataFull, DataReadSeek, DataUsage, DataWrite, Metadata};
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -15,6 +14,7 @@ use std::time::SystemTime;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+use crate::config::{VfsPoint, VfsUser};
 
 #[async_trait]
 pub trait UserVfs: Send + Sync + Debug + Unpin + 'static {

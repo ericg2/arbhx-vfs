@@ -1,19 +1,18 @@
 mod backend;
-mod config;
-mod handle;
 mod sequential;
 mod service;
 mod vfs;
 mod file;
 
-pub use backend::{AuthResult, UserAuthError, UserVfs, VfsAuth, VfsMetadata, VfsInfo};
-pub use config::{VfsPoint, VfsUser};
-pub use service::VfsManager;
-pub use handle::{VfsFlags, DirFlags};
 use sha2::{Digest, Sha256};
+
+pub use backend::{AuthResult, UserAuthError, UserVfs, VfsAuth, VfsMetadata, VfsInfo};
+pub use service::VfsManager;
 pub use vfs::VirtualFS;
 
 pub mod ftp;
+pub mod config;
+pub mod handle;
 
 /// Re-export of core stuff
 pub use arbhx_core::{DataUsage, Metadata};

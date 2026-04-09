@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "arbhx-vfs"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "arbhx-core",
  "async-trait",

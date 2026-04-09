@@ -1,4 +1,4 @@
-use crate::{UserAuthError, UserVfs, VfsAuth, VfsUser};
+use crate::{UserAuthError, UserVfs, VfsAuth};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use std::fmt::Debug;
@@ -10,6 +10,7 @@ use tokio::io::{AsyncRead, AsyncSeekExt};
 use unftp_core::auth::{AuthenticationError, Authenticator, Credentials, Principal};
 use unftp_core::storage;
 use unftp_core::storage::{ErrorKind, FEATURE_RESTART, Fileinfo, Metadata, StorageBackend};
+use crate::config::VfsUser;
 
 #[derive(Debug)]
 struct UserSession {
