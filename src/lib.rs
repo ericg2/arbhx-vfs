@@ -61,36 +61,36 @@ pub(crate) fn fix_path(path: impl AsRef<Path>, blank: bool) -> PathBuf {
     PathBuf::from(s)
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::config::{VfsPoint, VfsUser};
-    use crate::{VfsAuth, VfsManager, VirtualFS};
-    use arbhx_core::{VfsBackend, VfsReader};
-    use arbhx_local::LocalVfs;
-    use std::sync::Arc;
-
-    #[tokio::test]
-    async fn do_test() {
-        let point = VfsPoint {
-            name: "test".to_string(),
-            root: "abcd".to_string(),
-            can_write: true,
-            max_bytes: 1000000,
-            point: Arc::new(LocalVfs::new("hello", "C:\\Users\\Eric\\test4426")),
-        };
-
-        let user = VfsUser::new("eric", "h!", vec![], vec![point]);
-        let vfs = Arc::new(VfsManager::new(vec![user]));
-        let mut x = vfs
-            .auth_pass("eric", "h!")
-            .await
-            .expect("Failed to auth!");
-        let ret = x.list_f("/abcd/test".as_ref()).await.unwrap();
-        for item in ret {
-            println!("{:?}", item.path());
-        }
-        let h = x.open_read("/abcd/test/rider.exe".as_ref()).await;
-        println!("DID it!")
-        //   x.create_dir("/abcd".as_ref()).await.unwrap();
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use crate::config::{VfsPoint, VfsUser};
+//     use crate::{VfsAuth, VfsManager, VirtualFS};
+//     use arbhx_core::{VfsBackend, VfsReader};
+//     use arbhx_local::LocalVfs;
+//     use std::sync::Arc;
+//
+//     #[tokio::test]
+//     async fn do_test() {
+//         let point = VfsPoint {
+//             name: "test".to_string(),
+//             root: "abcd".to_string(),
+//             can_write: true,
+//             max_bytes: 1000000,
+//             point: Arc::new(LocalVfs::new("hello", "C:\\Users\\Eric\\test4426")),
+//         };
+//
+//         let user = VfsUser::new("eric", "h!", vec![], vec![point]);
+//         let vfs = Arc::new(VfsManager::new(vec![user]));
+//         let mut x = vfs
+//             .auth_pass("eric", "h!")
+//             .await
+//             .expect("Failed to auth!");
+//         let ret = x.list_f("/abcd/test".as_ref()).await.unwrap();
+//         for item in ret {
+//             println!("{:?}", item.path());
+//         }
+//         let h = x.open_read("/abcd/test/rider.exe".as_ref()).await;
+//         println!("DID it!")
+//         //   x.create_dir("/abcd".as_ref()).await.unwrap();
+//     }
+// }

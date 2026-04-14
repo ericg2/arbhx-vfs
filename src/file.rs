@@ -44,9 +44,8 @@ impl DataFile {
             .clone()
             .reader()
             .ok_or(ErrorKind::Unsupported)?
-            .open_read_random(&self.path)
-            .await?
-            .ok_or(ErrorKind::Unsupported.into())
+            .open_read_seek(&self.path)
+            .await
     }
 
     pub async fn open_append(&self, overwrite: bool) -> io::Result<Box<dyn DataWrite>> {
@@ -54,18 +53,17 @@ impl DataFile {
             .clone()
             .writer()
             .ok_or(ErrorKind::Unsupported)?
-            .open_write_append(&self.path, overwrite)
+            .open_write(&self.path, overwrite)
             .await
     }
 
     pub async fn open_write_full(&self) -> io::Result<Box<dyn DataWriteSeek>> {
         self.be
             .clone()
-            .writer()
+            .writer_seek()
             .ok_or(ErrorKind::Unsupported)?
-            .open_write_random(&self.path)
-            .await?
-            .ok_or(ErrorKind::Unsupported.into())
+            .open_write_seek(&self.path)
+            .await
     }
 
     pub async fn open_full(&self) -> io::Result<Box<dyn DataFull>> {
@@ -73,8 +71,7 @@ impl DataFile {
             .clone()
             .full()
             .ok_or(ErrorKind::Unsupported)?
-            .open_full_random(&self.path)
-            .await?
-            .ok_or(ErrorKind::Unsupported.into())
+            .open_full_seek(&self.path)
+            .await
     }
 }

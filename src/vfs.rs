@@ -734,7 +734,7 @@ impl UserVfs for VirtualFS {
                     .src
                     .reader()
                     .ok_or(ErrorKind::Unsupported)?
-                    .read_dir(&x.rel_path, None, false, false)
+                    .list(&x.rel_path, None, false, false)
                     .await?;
                 let it = li.stream().await?;
                 let ret = it
